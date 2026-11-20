@@ -43,6 +43,7 @@ const FINISH = `
 uniform vec3  uPaper;      // background color, sRGB
 uniform vec3  uLight;      // color of everything lit, sRGB
 uniform float uClock;      // real seconds, for the stars' twinkle
+uniform float uCurve;      // exponent on the scene's light: below 1 lifts the faint parts
 uniform float uGrain;      // film grain amplitude
 uniform float uGrainFrame; // index of the grain pattern
 uniform float uStars;      // star brightness
@@ -74,7 +75,7 @@ float stars(vec2 frag, float elevation) {
 vec3 finish(float light, vec2 frag) {
   float height = frag.y / uRes.y;
   // the sea sinks back into the page towards the bottom edge
-  light *= mix(0.3, 1.0, smoothstep(0.0, 0.6, height / uHorizon));
+  light = pow(light, uCurve) * mix(0.3, 1.0, smoothstep(0.0, 0.6, height / uHorizon));
   float elevation = (height - uHorizon) * 2.0 / FOCAL;
   if (elevation > 0.0) light += (1.0 - exp(-uStars * stars(frag, elevation))) * (1.0 - light);
   vec3 color = mix(uPaper, uLight, light);
