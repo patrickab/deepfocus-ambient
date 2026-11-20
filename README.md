@@ -1,12 +1,18 @@
 # deepfocus-ambient
 
-Calm animated scenes to work in front of. A scene fills a canvas behind an app and stays quiet enough to disappear while you focus.
+Animated backgrounds for apps you work in for hours.
+
+A scene is drawn behind the app's interface: slow, low in contrast, in the app's own colors. It is there to make the screen a calmer place to concentrate, not to be looked at.
+
+- Takes two colors from the app, so it follows the theme. A dark theme gets the scene by night, a light theme by day
+- Can be tied to a piece of the interface, such as an input box, so the scene lines up with it
+- Plays from a pre-rendered video where one is available, so it costs little while you work
 
 ![The night ocean scene](https://github.com/patrickab/deepfocus-ambient/releases/latest/download/night-ocean-preview.webp)
 
 Scenes:
 
-- `night-ocean`: a dark sea in slow motion under a hazy, starry sky, a moon hidden in the haze, film grain on top
+- `night-ocean`: a sea in slow motion with film grain on top. By night under a hazy, starry sky with a moon hidden in the haze, by day under a white sun with thin clouds drifting
 
 ## Use
 
