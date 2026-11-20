@@ -26,6 +26,8 @@ void main() { gl_Position = vec4(aPos, 0.0, 1.0); }
 
 const HEADER = `#version 300 es
 precision highp float;
+// the hashes need all 32 bits: integers default to mediump, which Vulkan drivers take at their word
+precision highp int;
 out vec4 outColor;
 
 uniform vec2  uRes;        // canvas pixels

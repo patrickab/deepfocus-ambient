@@ -2,6 +2,8 @@
 
 Calm animated scenes to work in front of. A scene fills a canvas behind an app and stays quiet enough to disappear while you focus.
 
+![The night ocean scene](https://github.com/patrickab/deepfocus-ambient/releases/latest/download/night-ocean-preview.webp)
+
 Scenes:
 
 - `night-ocean`: a dark sea in slow motion under a hazy, starry sky, a moon hidden in the haze, film grain on top
@@ -41,7 +43,8 @@ The sea repeats exactly every 60 seconds (`src/night-ocean/loop.ts`), so one loo
 cp .env.example .env   # SSH_GPU_HOST=user@host, optional
 npm run render                      # out/night-ocean.webm
 npm run render -- --frames 60       # the first two seconds, for a look
-npm run render -- --release v0.1.0  # also upload it to that GitHub release
+npm run render -- --release v0.2.0  # also upload it to that GitHub release
+npm run render -- --preview-only    # only the preview below
 ```
 
 - With `SSH_GPU_HOST` the frames are drawn by a headless Chromium on that machine, through an SSH tunnel. Without it, or when the machine does not answer, they are drawn here
@@ -50,7 +53,10 @@ npm run render -- --release v0.1.0  # also upload it to that GitHub release
 - Here: `ffmpeg` with `libsvtav1`, and `gh` for `--release`
 - The video holds the scene's light alone, in grayscale. Colors, stars and grain are added at playback, so one video serves every theme
 
-An app fetches the video of a release with `gh release download <tag> --repo <owner>/deepfocus-ambient --pattern night-ocean.webm`.
+- A render also writes `out/night-ocean-preview.webp`, a few seconds of the finished picture. The image at the top of this page is the one of the latest release
+
+An app fetches the latest video with `gh release download --repo patrickab/deepfocus-ambient --pattern night-ocean.webm`, or from
+`https://github.com/patrickab/deepfocus-ambient/releases/latest/download/night-ocean.webm`.
 
 ## Credits
 

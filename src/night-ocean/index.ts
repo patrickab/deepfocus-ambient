@@ -244,20 +244,31 @@ export const BAKE_FRAMES = LOOP_SECONDS * BAKE_FPS
  * Draw frames of the sea alone on `canvas`, at its size: `(index)` draws frame `index` of the loop. Null without WebGL2.
  *
  * - Grayscale, the square root of the scene's light, framed with `BAKE_MARGIN` spare for `startNightOcean` to slide the video
+ * - With `finished` it draws the finished picture in those colors, stars and grain included, framed like a window: a preview
  */
-export function bakeNightOcean(canvas: HTMLCanvasElement | OffscreenCanvas): ((index: number) => void) | null {
+export function bakeNightOcean(canvas: HTMLCanvasElement | OffscreenCanvas, finished?: Pick<NightOceanFrame, "paper" | "light">): ((index: number) => void) | null {
   const gl = context(canvas, true)
   if (!gl) return null
-  const sea = link(gl, seaFragment(true), SEA_UNIFORMS)
+  const sea = link(gl, seaFragment(!finished), finished ? [...SEA_UNIFORMS, ...FINISH_UNIFORMS] : SEA_UNIFORMS)
   selectSea(gl, sea)
   const u = sea.uniforms
+  const horizon = finished ? 0.4 : BAKE_HORIZON
   gl.viewport(0, 0, canvas.width, canvas.height)
   gl.uniform2f(u.uRes ?? null, canvas.width, canvas.height)
-  gl.uniform1f(u.uFocal ?? null, FOCAL / BAKE_MARGIN)
-  gl.uniform1f(u.uHorizon ?? null, BAKE_HORIZON)
-  gl.uniform2f(u.uMoonAt ?? null, 0.5, BAKE_HORIZON + BAKE_MOON_ABOVE / BAKE_MARGIN)
+  gl.uniform1f(u.uFocal ?? null, finished ? FOCAL : FOCAL / BAKE_MARGIN)
+  gl.uniform1f(u.uHorizon ?? null, horizon)
+  gl.uniform2f(u.uMoonAt ?? null, 0.5, horizon + BAKE_MOON_ABOVE / (finished ? 1 : BAKE_MARGIN))
+  if (finished) {
+    gl.uniform3fv(u.uPaper ?? null, finished.paper)
+    gl.uniform3fv(u.uLight ?? null, finished.light)
+    gl.uniform1f(u.uGrain ?? null, GRAIN)
+    gl.uniform1f(u.uStars ?? null, STARS)
+    gl.uniform1f(u.uPx ?? null, 1)
+  }
   return (index) => {
     gl.uniform1f(u.uTime ?? null, ((index % BAKE_FRAMES) / BAKE_FRAMES) * LOOP)
+    gl.uniform1f(u.uClock ?? null, index / BAKE_FPS)
+    gl.uniform1f(u.uGrainFrame ?? null, index)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.finish()
   }
