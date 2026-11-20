@@ -1,4 +1,4 @@
-// Preview of a scene behind a stand-in composer box. Query: ?video=<url> plays a baked video, ?pale draws it dark on a pale page.
+// Preview of a scene behind a stand-in composer box. Query: ?video=<url> plays a baked video, ?pale shows it by day, on a pale page.
 import { anchorScene, readSceneAnchor, startNightOcean } from "../src"
 
 const query = new URLSearchParams(location.search)

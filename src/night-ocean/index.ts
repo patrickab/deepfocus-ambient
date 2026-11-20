@@ -75,12 +75,11 @@ function coverCanvas(gl: WebGL2RenderingContext) {
 }
 
 const SEA_UNIFORMS = ["uRes", "uHorizon", "uMoonAt", "uTime", "uFocal", "uMist", "uMoon"]
-const FINISH_UNIFORMS = ["uPaper", "uLight", "uClock", "uCurve", "uGrain", "uGrainFrame", "uStars", "uPx"]
-/** Exponent on the scene's light when it is drawn dark on a pale page: the eye sees faint darkening on white far less than faint light on black. */
-const DARK_ON_PALE_CURVE = 0.6
+const FINISH_UNIFORMS = ["uPaper", "uLight", "uClock", "uDay", "uGrain", "uGrainFrame", "uStars", "uPx"]
 
 const luma = (color: readonly number[]) => 0.2126 * (color[0] ?? 0) + 0.7152 * (color[1] ?? 0) + 0.0722 * (color[2] ?? 0)
-const curve = (paper: readonly number[], light: readonly number[]) => (luma(light) < luma(paper) ? DARK_ON_PALE_CURVE : 1)
+/** A page paler than the light color gets the scene by day. */
+const isDay = (paper: readonly number[], light: readonly number[]) => (luma(light) < luma(paper) ? 1 : 0)
 
 function selectSea(gl: WebGL2RenderingContext, sea: { program: WebGLProgram; uniforms: Uniforms }) {
   gl.useProgram(sea.program)
@@ -192,7 +191,7 @@ export function startNightOcean(canvas: HTMLCanvasElement, { frame, onFirstFrame
       gl.uniform1f(u.uGrainFrame ?? null, still ? 0 : Math.floor(seconds * GRAIN_FPS) % 4096)
       gl.uniform3fv(u.uPaper ?? null, paper)
       gl.uniform3fv(u.uLight ?? null, light)
-      gl.uniform1f(u.uCurve ?? null, curve(paper, light))
+      gl.uniform1f(u.uDay ?? null, isDay(paper, light))
       gl.uniform1f(u.uPx ?? null, px)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       if (!hasFrame) {
@@ -267,7 +266,7 @@ export function bakeNightOcean(canvas: HTMLCanvasElement | OffscreenCanvas, fini
   if (finished) {
     gl.uniform3fv(u.uPaper ?? null, finished.paper)
     gl.uniform3fv(u.uLight ?? null, finished.light)
-    gl.uniform1f(u.uCurve ?? null, curve(finished.paper, finished.light))
+    gl.uniform1f(u.uDay ?? null, isDay(finished.paper, finished.light))
     gl.uniform1f(u.uGrain ?? null, GRAIN)
     gl.uniform1f(u.uStars ?? null, STARS)
     gl.uniform1f(u.uPx ?? null, 1)

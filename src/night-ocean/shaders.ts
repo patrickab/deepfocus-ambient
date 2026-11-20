@@ -3,7 +3,8 @@
  *
  * - `SEA_FRAGMENT` raymarches the wave height field and shades it with the Fresnel reflection of a hazy night sky, a moon hidden in the haze
  * - Compiled with `BAKE` it writes the scene's light alone, as the square root for precision in the dark, for a video
- * - `VIDEO_FRAGMENT` shows such a video. Both finish through `FINISH`: sea fade, stars, the two theme colors, film grain
+ * - `VIDEO_FRAGMENT` shows such a video. Both finish through `FINISH`: the two theme colors, film grain, and by night stars
+ * - On a pale page `FINISH` shows the same scene by day: a white sun in bright haze over a darker sea
  * - Wave field after afl_ext's "Very fast procedural ocean" (MIT License, 2017-2024)
  */
 import { OCTAVES, waveTable } from "./loop"
@@ -38,12 +39,12 @@ uniform vec2  uMoonAt;     // the hidden moon on screen, 0..1 from the bottom le
 #define FOCAL ${f(FOCAL)}
 `
 
-/** Stars, the two theme colors and film grain over the scene's light. */
+/** The scene's light in the two theme colors, by night or by day, with film grain. */
 const FINISH = `
 uniform vec3  uPaper;      // background color, sRGB
 uniform vec3  uLight;      // color of everything lit, sRGB
 uniform float uClock;      // real seconds, for the stars' twinkle
-uniform float uCurve;      // exponent on the scene's light: below 1 lifts the faint parts
+uniform float uDay;        // 1 on a pale page: the scene by day
 uniform float uGrain;      // film grain amplitude
 uniform float uGrainFrame; // index of the grain pattern
 uniform float uStars;      // star brightness
@@ -71,16 +72,28 @@ float stars(vec2 frag, float elevation) {
   return core * twinkle * smoothstep(0.03, 0.30, elevation) * (0.12 + 0.88 * mag * mag * mag);
 }
 
+#define DAY_SKY 0.12       // how far the day sky is tinted towards uLight, so the sun can outshine it
+#define DAY_SEA 0.52       // the same for the day sea in its troughs
+#define DAY_GAIN 7.0       // how fast the scene's light bleaches the day's tints
+
 // "light" is the scene's light after the tone curve, 0..1
 vec3 finish(float light, vec2 frag) {
   float height = frag.y / uRes.y;
   // the sea sinks back into the page towards the bottom edge
-  light = pow(light, uCurve) * mix(0.3, 1.0, smoothstep(0.0, 0.6, height / uHorizon));
+  float shore = smoothstep(0.0, 0.6, height / uHorizon);
   float elevation = (height - uHorizon) * 2.0 / FOCAL;
-  if (elevation > 0.0) light += (1.0 - exp(-uStars * stars(frag, elevation))) * (1.0 - light);
-  vec3 color = mix(uPaper, uLight, light);
   float grain = hash3(frag, 11.0 + uGrainFrame) + hash3(frag, 4111.0 + uGrainFrame) - 1.0;
-  return color + grain * uGrain * (0.55 + 3.0 * light);
+  if (uDay > 0.5) {
+    // By day the page is the bright haze: sky and sea are tinted towards uLight, and the scene's light bleaches them back,
+    // up to white in the sun and its glitter. The sky's top and the sea's near edge stay the page color.
+    float tint = elevation > 0.0 ? DAY_SKY * (1.0 - smoothstep(0.55, 1.0, height)) : mix(DAY_SKY, DAY_SEA * shore, smoothstep(0.0, 0.07, -elevation));
+    float bleach = 1.0 - exp(-light * DAY_GAIN);
+    vec3 color = mix(mix(uPaper, uLight, tint), mix(uPaper, vec3(1.0), 0.65), bleach);
+    return color + grain * uGrain * (0.7 + 1.6 * tint);
+  }
+  light *= mix(0.3, 1.0, shore);
+  if (elevation > 0.0) light += (1.0 - exp(-uStars * stars(frag, elevation))) * (1.0 - light);
+  return mix(uPaper, uLight, light) + grain * uGrain * (0.55 + 3.0 * light);
 }
 `
 
