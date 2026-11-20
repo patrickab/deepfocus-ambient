@@ -73,7 +73,7 @@ float stars(vec2 frag, float elevation) {
 }
 
 #define DAY_SKY 0.12       // how far the day sky is tinted towards uLight, so the sun can outshine it
-#define DAY_SEA 0.52       // the same for the day sea in its troughs
+#define DAY_SEA 0.40       // the same for the day sea in its troughs
 #define DAY_GAIN 7.0       // how fast the scene's light bleaches the day's tints
 
 // "light" is the scene's light after the tone curve, 0..1
