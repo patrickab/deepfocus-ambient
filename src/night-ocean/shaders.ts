@@ -79,19 +79,18 @@ float stars(vec2 frag, float elevation) {
 // "light" is the scene's light after the tone curve, 0..1
 vec3 finish(float light, vec2 frag) {
   float height = frag.y / uRes.y;
-  // the sea sinks back into the page towards the bottom edge
-  float shore = smoothstep(0.0, 0.6, height / uHorizon);
   float elevation = (height - uHorizon) * 2.0 / FOCAL;
   float grain = hash3(frag, 11.0 + uGrainFrame) + hash3(frag, 4111.0 + uGrainFrame) - 1.0;
   if (uDay > 0.5) {
     // By day the page is the bright haze: sky and sea are tinted towards uLight, and the scene's light bleaches them back,
-    // up to white in the sun and its glitter. The sky's top and the sea's near edge stay the page color.
-    float tint = elevation > 0.0 ? DAY_SKY * (1.0 - smoothstep(0.55, 1.0, height)) : mix(DAY_SKY, DAY_SEA * shore, smoothstep(0.0, 0.07, -elevation));
+    // up to white in the sun and its glitter. The sky's top stays the page color, the sea stays deep down to the bottom edge.
+    float tint = elevation > 0.0 ? DAY_SKY * (1.0 - smoothstep(0.55, 1.0, height)) : mix(DAY_SKY, DAY_SEA, smoothstep(0.0, 0.07, -elevation));
     float bleach = 1.0 - exp(-light * DAY_GAIN);
     vec3 color = mix(mix(uPaper, uLight, tint), mix(uPaper, vec3(1.0), 0.65), bleach);
     return color + grain * uGrain * (0.7 + 1.6 * tint);
   }
-  light *= mix(0.3, 1.0, shore);
+  // by night the sea sinks back into the dark page towards the bottom edge
+  light *= mix(0.3, 1.0, smoothstep(0.0, 0.6, height / uHorizon));
   if (elevation > 0.0) light += (1.0 - exp(-uStars * stars(frag, elevation))) * (1.0 - light);
   return mix(uPaper, uLight, light) + grain * uGrain * (0.55 + 3.0 * light);
 }
