@@ -20,6 +20,7 @@ const stop = startNightOcean(canvas, {
 ```
 
 - `frame` is read each frame: where the horizon and the moon sit, the page color and the light color, and `still` for reduced motion
+- The scene's light is drawn in `light` on `paper`. A dark `light` on a pale `paper` inverts it: the moon casts darkness
 - `anchorScene` lets a piece of UI (an input box) say where the scene belongs, `readSceneAnchor` gives the app that place to pass on in `frame`
 - With `videoUrl` the sea is played from a baked video and only stars and grain are computed, which costs a fraction of the GPU. Without it, or when it fails to load, the sea is computed live
 

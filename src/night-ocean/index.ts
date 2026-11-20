@@ -16,7 +16,7 @@ export interface NightOceanFrame {
   /** The page color and the color of everything lit, sRGB 0..1. */
   paper: [number, number, number]
   light: [number, number, number]
-  /** A still sea: one frame, redrawn only when the canvas or the scene's place changes. */
+  /** A still sea: one frame, redrawn only when the canvas, the scene's place or a color changes. */
   still: boolean
 }
 
@@ -165,7 +165,7 @@ export function startNightOcean(canvas: HTMLCanvasElement, { frame, onFirstFrame
         if (still) video.pause()
         else void video.play().catch(() => {})
       }
-      const stillKey = still ? `${width} ${height} ${horizon} ${moon[0]} ${moon[1]}` : ""
+      const stillKey = still ? [width, height, horizon, ...moon, ...paper, ...light].join(" ") : ""
       if (still && stillKey === drawnStill) return
       drawnStill = stillKey
       lastDraw = now
