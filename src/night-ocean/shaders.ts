@@ -4,7 +4,8 @@
  * - `SEA_FRAGMENT` raymarches the wave height field and shades it with the Fresnel reflection of a hazy night sky, a moon hidden in the haze
  * - Compiled with `BAKE` it writes the scene's light alone, as the square root for precision in the dark, for a video
  * - `VIDEO_FRAGMENT` shows such a video. Both finish through `FINISH`: the two theme colors, film grain, and by night stars
- * - On a pale page `FINISH` shows the same scene by day: a white sun in bright haze over a darker sea
+ * - On a pale page `FINISH` shows the same scene by day: a white sun in bright haze over a darker sea, thin clouds drifting,
+ *   gusts gliding over the water, now and then a halo around the sun
  * - Wave field after afl_ext's "Very fast procedural ocean" (MIT License, 2017-2024)
  */
 import { OCTAVES, waveTable } from "./loop"
@@ -72,6 +73,38 @@ float stars(vec2 frag, float elevation) {
   return core * twinkle * smoothstep(0.03, 0.30, elevation) * (0.12 + 0.88 * mag * mag * mag);
 }
 
+// Where the sun (by night the hidden moon) sits on screen, 0..1 from the bottom left. Set by main before finish.
+vec2 sunAt;
+
+float valueNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash3(i, 21.0), hash3(i + vec2(1.0, 0.0), 21.0), f.x), mix(hash3(i + vec2(0.0, 1.0), 21.0), hash3(i + vec2(1.0, 1.0), 21.0), f.x), f.y);
+}
+float fbm(vec2 p, int octaves) {
+  float sum = 0.0, weight = 0.5, total = 0.0;
+  for (int i = 0; i < octaves; i++) {
+    sum += weight * valueNoise(p);
+    total += weight;
+    p = p * 2.03 + 17.0;
+    weight *= 0.5;
+  }
+  return sum / total;
+}
+
+#define WIND 0.022         // drift of the day's clouds, cloud-plane units per second
+#define CLOUDS 0.85         // how far a cloud bleaches the day sky
+#define SUN_DIM 0.14       // how much of the sun's light a cloud in front of it takes
+#define GUSTS 0.07         // how much darker a gust ruffles the day sea
+#define HALO 0.06          // strength of the ring around the sun, seen through thin cloud
+
+// Thin high cloud, 0..1, towards a view direction given as tangents (sideways, up). In perspective: streaks flatten towards the horizon.
+float cloud(vec2 toward, int octaves) {
+  vec2 p = vec2(toward.x, 1.0) / max(toward.y, 0.03);
+  p.x += uClock * WIND;
+  return smoothstep(0.48, 0.72, fbm(vec2(p.x * 0.17, p.y * 0.46), octaves));
+}
+
 #define DAY_SKY 0.12       // how far the day sky is tinted towards uLight, so the sun can outshine it
 #define DAY_SEA 0.40       // the same for the day sea in its troughs
 #define DAY_GAIN 7.0       // how fast the scene's light bleaches the day's tints
@@ -84,9 +117,35 @@ vec3 finish(float light, vec2 frag) {
   if (uDay > 0.5) {
     // By day the page is the bright haze: sky and sea are tinted towards uLight, and the scene's light bleaches them back,
     // up to white in the sun and its glitter. The sky's top stays the page color, the sea stays deep down to the bottom edge.
-    float tint = elevation > 0.0 ? DAY_SKY * (1.0 - smoothstep(0.55, 1.0, height)) : mix(DAY_SKY, DAY_SEA, smoothstep(0.0, 0.07, -elevation));
+    float aspect = uRes.x / uRes.y;
+    vec2 toward = vec2((frag.x / uRes.x - 0.5) * aspect, height - uHorizon) * 2.0 / FOCAL;
+    vec2 towardSun = vec2((sunAt.x - 0.5) * aspect, sunAt.y - uHorizon) * 2.0 / FOCAL;
+    // a cloud drifting across the sun takes a little of its light, everywhere
+    float veil = cloud(towardSun, 2);
+    light *= 1.0 - SUN_DIM * veil;
+    float tint, clouds = 0.0, ring = 0.0;
+    if (elevation > 0.0) {
+      tint = DAY_SKY * (1.0 - smoothstep(0.55, 1.0, height));
+      clouds = cloud(toward, 5) * smoothstep(0.06, 0.36, elevation);
+      // the 22 degree halo: ice in thin cloud bends the sun's light into a ring, strongest while a veil is over the sun
+      ring = (length(toward - towardSun) - 0.404) / 0.028;
+    } else {
+      // wind: gusts ruffle patches of the sea darker and make its glitter livelier, gliding with the clouds
+      vec2 p = vec2(toward.x, 1.0) / max(-toward.y, 0.02);
+      p.x += uClock * WIND * 6.0;
+      float gust = smoothstep(0.5, 0.8, fbm(vec2(p.x * 0.3, p.y * 0.45 + uClock * WIND * 2.0), 3)) * smoothstep(0.0, 0.1, -elevation);
+      tint = mix(DAY_SKY, DAY_SEA, smoothstep(0.0, 0.07, -elevation)) + GUSTS * gust;
+      light *= 1.0 + 0.5 * gust;
+    }
     float bleach = 1.0 - exp(-light * DAY_GAIN);
-    vec3 color = mix(mix(uPaper, uLight, tint), mix(uPaper, vec3(1.0), 0.65), bleach);
+    bleach += CLOUDS * clouds * (1.0 - bleach);
+    vec3 white = mix(uPaper, vec3(1.0), 0.65);
+    vec3 color = mix(mix(uPaper, uLight, tint), white, bleach);
+    if (elevation > 0.0) {
+      float halo = HALO * exp(-ring * ring) * smoothstep(0.15, 0.6, veil) * smoothstep(0.0, 0.1, elevation);
+      // red on the ring's inside, blue on its outside, barely
+      color += halo * (white - color) + halo * 0.2 * clamp(ring, -1.0, 1.0) * vec3(-1.0, 0.0, 1.0);
+    }
     return color + grain * uGrain * (0.7 + 1.6 * tint);
   }
   // by night the sea sinks back into the dark page towards the bottom edge
@@ -221,6 +280,7 @@ void main() {
 `
   return `${HEADER}${FINISH}${SEA}
 void main() {
+  sunAt = uMoonAt;
   outColor = vec4(finish(1.0 - exp(-scene(gl_FragCoord.xy)), gl_FragCoord.xy), 1.0);
 }
 `
@@ -241,6 +301,7 @@ void main() {
   float moonX = 0.5 + clamp(uMoonAt.x - 0.5, -room, room);
   vec2 uv = vec2(0.5 + (at.x - moonX) * aspect / (wide * zoom), ${f(BAKE_HORIZON)} + (at.y - uHorizon) / (${f(BAKE_MARGIN)} * zoom));
   float root = texture(uVideo, clamp(uv, 0.0, 1.0)).r;
+  sunAt = vec2(moonX, uHorizon + ${f(BAKE_MOON_ABOVE)} * zoom);
   outColor = vec4(finish(root * root, gl_FragCoord.xy), 1.0);
 }
 `
