@@ -1,13 +1,16 @@
 #!/usr/bin/env node
-// Bake a scene's loop into a video: frames are drawn by a headless Chromium on the GPU machine, encoded here.
+// Bake a scene's loop into a video: frames are drawn by a headless Chromium, on the GPU machine when there is one, and encoded here.
 //
 //   npm run render -- [--height 1440] [--frames N] [--crf 30] [--release <tag>]
 //
-// - SSH_GPU_HOST (environment or .env) is the SSH target. It needs a Chromium: Playwright's, or CHROMIUM=<path> in its environment
+// - With SSH_GPU_HOST (environment or .env) the frames are drawn on that machine. Without it, or when it does not answer, here
+// - Either machine needs a Chromium: Playwright's, one on PATH, or CHROMIUM=<path> in its environment
 // - Writes out/night-ocean.webm (AV1). --frames bakes only the first N frames, for a look
 // - --release uploads the video to that GitHub release of this repository, creating it if needed (gh)
 import { spawn, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { parseArgs } from "node:util"
 import { build } from "esbuild"
 import { chromium } from "playwright-core"
@@ -17,12 +20,40 @@ const PORT = 9377
 const { values: options } = parseArgs({ options: { height: { type: "string", default: "1440" }, frames: { type: "string" }, crf: { type: "string", default: "30" }, release: { type: "string" } } })
 
 function gpuHost() {
-  if (process.env.SSH_GPU_HOST) return process.env.SSH_GPU_HOST
+  if (process.env.SSH_GPU_HOST !== undefined) return process.env.SSH_GPU_HOST
   const line = existsSync(".env") && readFileSync(".env", "utf8").split("\n").find((entry) => entry.startsWith("SSH_GPU_HOST="))
-  const host = line ? line.slice("SSH_GPU_HOST=".length).trim() : ""
-  if (!host) throw new Error("Set SSH_GPU_HOST (environment or .env) to the machine that renders")
-  return host
+  return line ? line.slice("SSH_GPU_HOST=".length).trim() : ""
 }
+
+const REMOTE_CHROMIUM = '${CHROMIUM:-$(ls -d ~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | tail -1)}'
+
+function localChromium() {
+  if (process.env.CHROMIUM) return process.env.CHROMIUM
+  const found = spawnSync("sh", ["-c", "ls -d ~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | tail -1; command -v chromium google-chrome-stable google-chrome chromium-browser"], { encoding: "utf8" })
+  const path = found.stdout.split("\n").find(Boolean)
+  if (!path) throw new Error("No Chromium here: install one or set CHROMIUM=<path>")
+  return path
+}
+
+const browserFlags = (gpuFlags) => `--headless=new --remote-debugging-port=${PORT} --no-first-run --ignore-gpu-blocklist ${gpuFlags} about:blank`
+
+/** A headless Chromium answering on PORT, started by `start`, or null when none answers within `seconds`. */
+async function openBrowser(start, seconds) {
+  const process_ = start()
+  for (let attempt = 0; attempt < seconds * 2; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`).catch(() => null)
+    if (browser) return { browser, process: process_ }
+    if (process_.exitCode !== null) break
+  }
+  process_.kill()
+  return null
+}
+
+// Over SSH the browser lives as long as the session: its terminal closing takes it down
+const overSsh = (host) => () => spawn("ssh", ["-tt", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ExitOnForwardFailure=yes", "-L", `${PORT}:127.0.0.1:${PORT}`, host,
+  `exec "${REMOTE_CHROMIUM}" --user-data-dir=$(mktemp -d) ${browserFlags("--use-angle=vulkan --enable-features=Vulkan")}`], { stdio: "ignore" })
+const here = () => spawn(localChromium(), [`--user-data-dir=${mkdtempSync(join(tmpdir(), "deepfocus-ambient-"))}`, ...browserFlags("--use-gl=angle --use-angle=gl-egl").split(" ").filter(Boolean)], { stdio: "ignore" })
 
 const height = Number(options.height)
 const width = Math.round((height * 16) / 9 / 2) * 2
@@ -31,12 +62,10 @@ mkdirSync("out", { recursive: true })
 
 const bundle = await build({ entryPoints: [`src/${SCENE}/bake-page.ts`], bundle: true, write: false, format: "iife" })
 
-// The browser lives as long as the SSH session: its terminal closing takes it down
-const browserCommand = `chrome=\${CHROMIUM:-$(ls -d ~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | tail -1)}; exec "$chrome" --headless=new --remote-debugging-port=${PORT} --user-data-dir=$(mktemp -d) --no-first-run --use-angle=vulkan --enable-features=Vulkan --ignore-gpu-blocklist about:blank`
-const ssh = spawn("ssh", ["-tt", "-o", "ExitOnForwardFailure=yes", "-L", `${PORT}:127.0.0.1:${PORT}`, gpuHost(), browserCommand], { stdio: "ignore" })
+let rendering
 let encoder
 const cleanUp = () => {
-  ssh.kill()
+  rendering?.process.kill()
   encoder?.kill()
 }
 process.on("SIGINT", () => {
@@ -45,12 +74,14 @@ process.on("SIGINT", () => {
 })
 
 try {
-  let browser
-  for (let attempt = 0; attempt < 60 && !browser; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`).catch(() => null)
+  const host = gpuHost()
+  if (host) {
+    rendering = await openBrowser(overSsh(host), 30)
+    if (!rendering) console.warn(`No Chromium answered on ${host}, rendering here`)
   }
-  if (!browser) throw new Error(`No Chromium answered on ${gpuHost()}`)
+  rendering ??= await openBrowser(here, 30)
+  if (!rendering) throw new Error("No Chromium started here either")
+  const { browser } = rendering
   const page = await browser.contexts()[0].newPage()
   await page.addScriptTag({ content: bundle.outputFiles[0].text })
   const bake = await page.evaluate(([w, h]) => globalThis.bake(w, h), [width, height])

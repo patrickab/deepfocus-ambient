@@ -37,14 +37,15 @@ npm run preview        # http://127.0.0.1:8765/preview/
 The sea repeats exactly every 60 seconds (`src/night-ocean/loop.ts`), so one loop is baked into a video that plays seamlessly.
 
 ```sh
-cp .env.example .env   # SSH_GPU_HOST=user@host
+cp .env.example .env   # SSH_GPU_HOST=user@host, optional
 npm run render                      # out/night-ocean.webm
 npm run render -- --frames 60       # the first two seconds, for a look
 npm run render -- --release v0.1.0  # also upload it to that GitHub release
 ```
 
-- The frames are drawn by a headless Chromium on `SSH_GPU_HOST` through an SSH tunnel and encoded here with `ffmpeg` (AV1)
-- The host needs a Chromium: Playwright's (`npx playwright install chromium`) or `CHROMIUM=<path>` in its environment
+- With `SSH_GPU_HOST` the frames are drawn by a headless Chromium on that machine, through an SSH tunnel. Without it, or when the machine does not answer, they are drawn here
+- The frames are encoded here with `ffmpeg` (AV1)
+- The drawing machine needs a Chromium: Playwright's (`npx playwright install chromium`), one on `PATH`, or `CHROMIUM=<path>` in its environment
 - Here: `ffmpeg` with `libsvtav1`, and `gh` for `--release`
 - The video holds the scene's light alone, in grayscale. Colors, stars and grain are added at playback, so one video serves every theme
 

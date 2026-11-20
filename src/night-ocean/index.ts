@@ -22,8 +22,10 @@ export interface NightOceanFrame {
 
 export interface NightOceanOptions {
   frame: () => NightOceanFrame
-  /** Fires once the canvas holds a picture. */
+  /** Fires once the canvas holds a picture, again after a lost graphics context came back. */
   onFirstFrame?: () => void
+  /** Fires when the browser takes the graphics context away: the canvas is blank until `onFirstFrame`. */
+  onLost?: () => void
   /** A video baked by `scripts/render.mjs`. Without one, or when it fails to load, the sea is computed live. */
   videoUrl?: string
 }
@@ -60,18 +62,22 @@ function link(gl: WebGL2RenderingContext, fragment: string, names: string[]): { 
 
 function context(canvas: HTMLCanvasElement | OffscreenCanvas, preserveDrawingBuffer = false): WebGL2RenderingContext | null {
   const gl = canvas.getContext("webgl2", { antialias: false, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer }) as WebGL2RenderingContext | null
-  if (!gl) return null
+  if (gl) coverCanvas(gl)
+  return gl
+}
+
+/** The one triangle every program draws, covering the canvas. */
+function coverCanvas(gl: WebGL2RenderingContext) {
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer())
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW)
   gl.enableVertexAttribArray(0)
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0)
-  return gl
 }
 
 const SEA_UNIFORMS = ["uRes", "uHorizon", "uMoonAt", "uTime", "uFocal", "uMist", "uMoon"]
 const FINISH_UNIFORMS = ["uPaper", "uLight", "uClock", "uGrain", "uGrainFrame", "uStars", "uPx"]
 
-function useSea(gl: WebGL2RenderingContext, sea: { program: WebGLProgram; uniforms: Uniforms }) {
+function selectSea(gl: WebGL2RenderingContext, sea: { program: WebGLProgram; uniforms: Uniforms }) {
   gl.useProgram(sea.program)
   gl.uniform1f(sea.uniforms.uMist ?? null, HAZE)
   gl.uniform1f(sea.uniforms.uMoon ?? null, MOON)
@@ -102,17 +108,21 @@ function loadVideo(url: string): { video: HTMLVideoElement; ready: Promise<boole
  *
  * - With `videoUrl` the sea comes from that video once it has a picture, stars and grain are drawn over it. It falls back to the live sea
  * - Draws nothing while the canvas has no size (a hidden tab)
+ * - A graphics context the browser took away (GPU reset, too many contexts) is rebuilt when it comes back
  */
-export function startNightOcean(canvas: HTMLCanvasElement, { frame, onFirstFrame, videoUrl }: NightOceanOptions): (() => void) | null {
+export function startNightOcean(canvas: HTMLCanvasElement, { frame, onFirstFrame, onLost, videoUrl }: NightOceanOptions): (() => void) | null {
   const gl = context(canvas)
   if (!gl) return null
 
   let request = 0
   let isStopped = false
   let video: HTMLVideoElement | null = null
+  /** Whether the sea comes from the video, null until that is known. */
+  let source: boolean | null = null
 
   const run = (fromVideo: boolean) => {
-    if (isStopped) return
+    source = fromVideo
+    if (isStopped || gl.isContextLost()) return
     let stage: { program: WebGLProgram; uniforms: Uniforms }
     try {
       stage = fromVideo
@@ -133,7 +143,7 @@ export function startNightOcean(canvas: HTMLCanvasElement, { frame, onFirstFrame
       gl.uniform1i(u.uVideo ?? null, 0)
       gl.uniform1f(u.uVideoAspect ?? null, video.videoWidth / video.videoHeight)
     } else {
-      useSea(gl, stage)
+      selectSea(gl, stage)
       gl.uniform1f(u.uFocal ?? null, FOCAL)
     }
     gl.uniform1f(u.uGrain ?? null, GRAIN)
@@ -201,9 +211,23 @@ export function startNightOcean(canvas: HTMLCanvasElement, { frame, onFirstFrame
   } else {
     run(false)
   }
+  const handleLost = (event: Event) => {
+    // Without this the browser never gives the context back
+    event.preventDefault()
+    cancelAnimationFrame(request)
+    onLost?.()
+  }
+  const handleRestored = () => {
+    coverCanvas(gl)
+    if (source !== null) run(source)
+  }
+  canvas.addEventListener("webglcontextlost", handleLost)
+  canvas.addEventListener("webglcontextrestored", handleRestored)
   return () => {
     isStopped = true
     cancelAnimationFrame(request)
+    canvas.removeEventListener("webglcontextlost", handleLost)
+    canvas.removeEventListener("webglcontextrestored", handleRestored)
     if (video) {
       video.pause()
       video.removeAttribute("src")
@@ -225,7 +249,7 @@ export function bakeNightOcean(canvas: HTMLCanvasElement | OffscreenCanvas): ((i
   const gl = context(canvas, true)
   if (!gl) return null
   const sea = link(gl, seaFragment(true), SEA_UNIFORMS)
-  useSea(gl, sea)
+  selectSea(gl, sea)
   const u = sea.uniforms
   gl.viewport(0, 0, canvas.width, canvas.height)
   gl.uniform2f(u.uRes ?? null, canvas.width, canvas.height)
